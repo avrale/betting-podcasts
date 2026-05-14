@@ -1,9 +1,13 @@
 """
-Fetches top 10 most-viewed videos from each YouTube playlist and writes results to a CSV.
+Fetches top 10 most-viewed videos from each YouTube playlist or channel and writes results to a CSV.
 
 Usage:
   1. Set your YouTube Data API v3 key in API_KEY below.
-  2. Add playlist URLs to PLAYLISTS.
+  2. Add playlist or channel URLs to PLAYLISTS. Both formats are supported:
+       Playlist: https://www.youtube.com/playlist?list=PLxxxxxxxxxxxxxxxx
+       Channel:  https://www.youtube.com/@handle
+                 https://www.youtube.com/channel/UCxxxxxxxxxxxxxxxx
+                 https://www.youtube.com/user/username
   3. Run: python3 playlist_top10.py
      Output is written to top10_views.csv.
 
@@ -18,9 +22,9 @@ import requests
 API_KEY = "YOUR_API_KEY_HERE"
 
 PLAYLISTS = [
-    # Add your playlist URLs here, e.g.:
+    # Add playlist or channel URLs here, e.g.:
     # "https://www.youtube.com/playlist?list=PLxxxxxxxxxxxxxxxx",
-    # "https://www.youtube.com/playlist?list=PLyyyyyyyyyyyyyyyy",
+    # "https://www.youtube.com/@SomeChannel",
 ]
 
 OUTPUT_FILE = "top10_views.csv"
@@ -28,11 +32,34 @@ TOP_N = 10
 YT_API = "https://www.googleapis.com/youtube/v3"
 
 
-def extract_playlist_id(url: str) -> str:
-    match = re.search(r"[?&]list=([A-Za-z0-9_-]+)", url)
-    if not match:
-        raise ValueError(f"Could not find playlist ID in URL: {url}")
-    return match.group(1)
+def is_channel_url(url: str) -> bool:
+    return bool(re.search(r"youtube\.com/(@|channel/|user/)", url))
+
+
+def get_channel_info(url: str) -> tuple[str, str]:
+    """Return (channel_name, uploads_playlist_id) for a channel URL."""
+    handle_match = re.search(r"youtube\.com/@([A-Za-z0-9_.-]+)", url)
+    channel_match = re.search(r"youtube\.com/channel/(UC[A-Za-z0-9_-]+)", url)
+    user_match = re.search(r"youtube\.com/user/([A-Za-z0-9_.-]+)", url)
+
+    if handle_match:
+        params = {"part": "snippet,contentDetails", "forHandle": handle_match.group(1), "key": API_KEY}
+    elif channel_match:
+        params = {"part": "snippet,contentDetails", "id": channel_match.group(1), "key": API_KEY}
+    elif user_match:
+        params = {"part": "snippet,contentDetails", "forUsername": user_match.group(1), "key": API_KEY}
+    else:
+        raise ValueError(f"Could not parse channel URL: {url}")
+
+    resp = requests.get(f"{YT_API}/channels", params=params, timeout=15)
+    resp.raise_for_status()
+    items = resp.json().get("items", [])
+    if not items:
+        raise ValueError(f"No channel found for URL: {url}")
+
+    name = items[0]["snippet"]["title"]
+    uploads_id = items[0]["contentDetails"]["relatedPlaylists"]["uploads"]
+    return name, uploads_id
 
 
 def get_playlist_name(playlist_id: str) -> str:
@@ -83,10 +110,18 @@ def get_view_counts(video_ids: list[str]) -> list[int]:
     return view_counts
 
 
-def process_playlist(playlist_url: str) -> tuple[str, list[int]]:
-    playlist_id = extract_playlist_id(playlist_url)
-    name = get_playlist_name(playlist_id)
-    print(f"  Playlist: {name}")
+def process_url(url: str) -> tuple[str, list[int]]:
+    if is_channel_url(url):
+        name, playlist_id = get_channel_info(url)
+        print(f"  Channel: {name}")
+    else:
+        playlist_id = re.search(r"[?&]list=([A-Za-z0-9_-]+)", url)
+        if not playlist_id:
+            raise ValueError(f"Could not find playlist ID in URL: {url}")
+        playlist_id = playlist_id.group(1)
+        name = get_playlist_name(playlist_id)
+        print(f"  Playlist: {name}")
+
     video_ids = get_all_video_ids(playlist_id)
     print(f"  {len(video_ids)} videos found. Fetching view counts...")
     view_counts = get_view_counts(video_ids)
@@ -106,7 +141,7 @@ def main():
     for url in PLAYLISTS:
         print(f"Processing: {url}")
         try:
-            name, top_views = process_playlist(url)
+            name, top_views = process_url(url)
             for views in top_views:
                 rows.append({"playlist_name": name, "views": views})
         except Exception as e:
