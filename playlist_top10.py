@@ -35,6 +35,16 @@ def extract_playlist_id(url: str) -> str:
     return match.group(1)
 
 
+def get_playlist_name(playlist_id: str) -> str:
+    params = {"part": "snippet", "id": playlist_id, "key": API_KEY}
+    resp = requests.get(f"{YT_API}/playlists", params=params, timeout=15)
+    resp.raise_for_status()
+    items = resp.json().get("items", [])
+    if not items:
+        return playlist_id
+    return items[0]["snippet"]["title"]
+
+
 def get_all_video_ids(playlist_id: str) -> list[str]:
     video_ids = []
     page_token = None
@@ -60,45 +70,28 @@ def get_all_video_ids(playlist_id: str) -> list[str]:
     return video_ids
 
 
-def get_video_stats(video_ids: list[str]) -> list[dict]:
-    videos = []
-    # API allows up to 50 IDs per request
+def get_view_counts(video_ids: list[str]) -> list[int]:
+    view_counts = []
     for i in range(0, len(video_ids), 50):
         chunk = video_ids[i : i + 50]
-        params = {
-            "part": "snippet,statistics",
-            "id": ",".join(chunk),
-            "key": API_KEY,
-        }
+        params = {"part": "statistics", "id": ",".join(chunk), "key": API_KEY}
         resp = requests.get(f"{YT_API}/videos", params=params, timeout=15)
         resp.raise_for_status()
-        data = resp.json()
-        for item in data.get("items", []):
-            stats = item.get("statistics", {})
-            view_count = int(stats.get("viewCount", 0))
-            videos.append(
-                {
-                    "video_id": item["id"],
-                    "title": item["snippet"]["title"],
-                    "views": view_count,
-                    "url": f"https://www.youtube.com/watch?v={item['id']}",
-                }
-            )
-    return videos
+        for item in resp.json().get("items", []):
+            views = int(item.get("statistics", {}).get("viewCount", 0))
+            view_counts.append(views)
+    return view_counts
 
 
-def process_playlist(playlist_url: str) -> list[dict]:
+def process_playlist(playlist_url: str) -> tuple[str, list[int]]:
     playlist_id = extract_playlist_id(playlist_url)
-    print(f"  Fetching video IDs for playlist {playlist_id}...")
+    name = get_playlist_name(playlist_id)
+    print(f"  Playlist: {name}")
     video_ids = get_all_video_ids(playlist_id)
-    print(f"  Found {len(video_ids)} videos. Fetching stats...")
-    videos = get_video_stats(video_ids)
-    videos.sort(key=lambda v: v["views"], reverse=True)
-    top = videos[:TOP_N]
-    for rank, v in enumerate(top, start=1):
-        v["rank"] = rank
-        v["playlist_url"] = playlist_url
-    return top
+    print(f"  {len(video_ids)} videos found. Fetching view counts...")
+    view_counts = get_view_counts(video_ids)
+    view_counts.sort(reverse=True)
+    return name, view_counts[:TOP_N]
 
 
 def main():
@@ -113,15 +106,14 @@ def main():
     for url in PLAYLISTS:
         print(f"Processing: {url}")
         try:
-            top10 = process_playlist(url)
-            rows.extend(top10)
-            print(f"  Done. Top video: {top10[0]['title']} ({top10[0]['views']:,} views)")
+            name, top_views = process_playlist(url)
+            for views in top_views:
+                rows.append({"playlist_name": name, "views": views})
         except Exception as e:
             print(f"  Failed: {e}")
 
-    fieldnames = ["playlist_url", "rank", "title", "views", "url"]
     with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        writer = csv.DictWriter(f, fieldnames=["playlist_name", "views"])
         writer.writeheader()
         writer.writerows(rows)
 
