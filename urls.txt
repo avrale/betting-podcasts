@@ -1,0 +1,6 @@
+# Paste your YouTube playlist or channel URLs here, one per line.
+# Lines starting with # are ignored.
+
+https://www.youtube.com/playlist?list=PLfikCHtGjo4l2AJbpkgkmFOxgIQBc9Pn2
+https://www.youtube.com/playlist?list=PLfikCHtGjo4kTyCvhNSRHPMwJ0uMNMKRD
+https://www.youtube.com/playlist?list=PLix1XgyL1MdxPEqiyors1OZ7ps_uQvXZG

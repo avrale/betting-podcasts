@@ -3,7 +3,8 @@ Fetches top 10 most-viewed videos from each YouTube playlist or channel and writ
 
 Usage:
   1. Set your YouTube Data API v3 key in API_KEY below.
-  2. Add playlist or channel URLs to PLAYLISTS. Both formats are supported:
+  2. Paste your URLs into urls.txt — one per line, no quotes or commas needed.
+     Both formats are supported:
        Playlist: https://www.youtube.com/playlist?list=PLxxxxxxxxxxxxxxxx
        Channel:  https://www.youtube.com/@handle
                  https://www.youtube.com/channel/UCxxxxxxxxxxxxxxxx
@@ -21,11 +22,7 @@ import requests
 
 API_KEY = "YOUR_API_KEY_HERE"
 
-PLAYLISTS = [
-    # Add playlist or channel URLs here, e.g.:
-    # "https://www.youtube.com/playlist?list=PLxxxxxxxxxxxxxxxx",
-    # "https://www.youtube.com/@SomeChannel",
-]
+URLS_FILE = "urls.txt"
 
 OUTPUT_FILE = "top10_views.csv"
 TOP_N = 10
@@ -129,16 +126,27 @@ def process_url(url: str) -> tuple[str, list[int]]:
     return name, view_counts[:TOP_N]
 
 
+def load_urls() -> list[str]:
+    try:
+        with open(URLS_FILE, encoding="utf-8") as f:
+            return [line.strip() for line in f if line.strip() and not line.startswith("#")]
+    except FileNotFoundError:
+        print(f"Error: {URLS_FILE} not found. Create it and paste your URLs in, one per line.")
+        sys.exit(1)
+
+
 def main():
     if API_KEY == "YOUR_API_KEY_HERE":
         print("Error: set your YouTube Data API key in API_KEY before running.")
         sys.exit(1)
-    if not PLAYLISTS:
-        print("Error: add at least one playlist URL to PLAYLISTS before running.")
+
+    urls = load_urls()
+    if not urls:
+        print(f"Error: {URLS_FILE} is empty. Paste your URLs in, one per line.")
         sys.exit(1)
 
     rows = []
-    for url in PLAYLISTS:
+    for url in urls:
         print(f"Processing: {url}")
         try:
             name, top_views = process_url(url)
